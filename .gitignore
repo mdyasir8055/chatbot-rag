@@ -1,10 +1,31 @@
-# Ignore node modules
+# Node / Frontend
 node_modules/
-
-# Optional: common ignores for Python + Node + VS Code
-__pycache__/
-*.pyc
-.env
-.vscode/
 dist/
 build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS-generated files
+.DS_Store
+Thumbs.db
