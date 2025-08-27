@@ -29,3 +29,8 @@ htmlcov/
 # OS-generated files
 .DS_Store
 Thumbs.db
+
+# Project-specific ignores
+backend/.venv/
+frontend/dist/
+backend/data/chroma_store/
