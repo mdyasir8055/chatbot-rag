@@ -1,0 +1,10 @@
+# Ignore node modules
+node_modules/
+
+# Optional: common ignores for Python + Node + VS Code
+__pycache__/
+*.pyc
+.env
+.vscode/
+dist/
+build/

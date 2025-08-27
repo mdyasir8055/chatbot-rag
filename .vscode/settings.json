@@ -1,5 +1,13 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:conda",
-    "python-envs.defaultPackageManager": "ms-python.python:conda",
-    "python-envs.pythonProjects": []
+  "python.defaultInterpreterPath": "C:\\Users\\thiru\\.conda\\envs\\chatbot_env\\python.exe",
+  "python.analysis.extraPaths": [
+    "s:\\CTS hackathon\\chatbot-rag\\backend"
+  ],
+  "css.validate": false,
+  "tailwindCSS.includeLanguages": {
+    "plaintext": "html",
+    "javascript": "javascript",
+    "javascriptreact": "javascriptreact",
+    "typescriptreact": "typescriptreact"
+  }
 }
