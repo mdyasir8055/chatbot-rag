@@ -1,0 +1,34 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pkl
+*.db
+
+# Virtual environment
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Cache / logs
+.cache/
+*.log
+
+# Data and embeddings (optional - ignore if generated)
+db_chroma/
+data/
+.zencoder/
+
+# Backup or copy files
+* copy.md
