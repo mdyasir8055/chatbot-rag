@@ -26,10 +26,15 @@ except Exception:
         pass
 
 # Updated LangChain imports
-from langchain_community.document_loaders import PyPDFLoader
+try:
+    from langchain_community.document_loaders import PyMuPDFLoader as FastPDFLoader
+except Exception:
+    from langchain_community.document_loaders import PyPDFLoader as FastPDFLoader
 from langchain_community.vectorstores import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from fastapi import BackgroundTasks
+import aiofiles
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
@@ -39,6 +44,7 @@ import pytesseract
 from PIL import Image
 import tempfile
 import gc
+from uuid import uuid4
 
 try:
     from langchain.schema import Document
@@ -83,7 +89,8 @@ app_state = {
         "ocr_pages": 8,
         "poppler_path": "",
         "tesseract_cmd": ""
-    }
+    },
+    "jobs": {}
 }
 
 # Base Content Extractor Class
@@ -1280,17 +1287,33 @@ def setup_rag_pipeline(pdf_path: str, product_slug: str):
         raise HTTPException(status_code=404, detail=f"Document not found at {pdf_path}")
 
     embed_model = "models/embedding-001"
-    collection_name = f"{product_slug}_{embed_model.replace('/', '_')}"
+    # Sanitize collection name to satisfy Chroma constraints (3-63 chars, alnum start/end)
+    base_collection = f"{product_slug}_{embed_model.replace('/', '_')}"
+    base_collection = re.sub(r"[^A-Za-z0-9_-]+", "_", base_collection).strip("-_")
+    if not re.match(r"^[A-Za-z0-9].*[A-Za-z0-9]$", base_collection):
+        base_collection = f"a{base_collection}a".strip("-_")
+    collection_name = base_collection[:63]
     embedding_function = GoogleGenerativeAIEmbeddings(google_api_key=GOOGLE_API_KEY, model=embed_model)
 
     try:
-        loader = PyPDFLoader(pdf_path)
-        documents = loader.load()
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
+        # 1) Faster loader: use PyMuPDF if available
+        loader = FastPDFLoader(pdf_path)
+        # 2) Limit pages for initial processing to speed up heavy PDFs (first N pages)
+        max_pages = int(os.getenv("PDF_MAX_PAGES", "15"))
+        try:
+            documents = loader.load()
+            if max_pages and isinstance(documents, list) and len(documents) > max_pages:
+                documents = documents[:max_pages]
+        except Exception:
+            # Fallback to entire file if loader pagination fails
+            documents = loader.load()
+
+        # 3) Slightly larger chunks to reduce embedding calls (trade-off: fewer chunks)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=250)
         docs = text_splitter.split_documents(documents)
         
         if not docs and app_state["ocr_settings"]["enable_ocr"]:
-            # OCR fallback
+            # OCR fallback (already limited by configured ocr_pages)
             ocr_pages = app_state["ocr_settings"]["ocr_pages"]
             poppler_path = app_state["ocr_settings"]["poppler_path"] or None
             if app_state["ocr_settings"]["tesseract_cmd"]:
@@ -1354,10 +1377,15 @@ def setup_rag_pipeline(pdf_path: str, product_slug: str):
 async def setup_rag_pipeline_from_urls(urls: List[str], product_slug: str):
     db_persist_directory = "db_chroma"
     embed_model = "models/embedding-001"
-    collection_name = f"{product_slug}_{embed_model.replace('/', '_')}_urls"
+    # Sanitize collection name for URL ingestion as well
+    base_collection = f"{product_slug}_{embed_model.replace('/', '_')}_urls"
+    base_collection = re.sub(r"[^A-Za-z0-9_-]+", "_", base_collection).strip("-_")
+    if not re.match(r"^[A-Za-z0-9].*[A-Za-z0-9]$", base_collection):
+        base_collection = f"a{base_collection}a".strip("-_")
+    collection_name = base_collection[:63]
     embedding_function = GoogleGenerativeAIEmbeddings(google_api_key=GOOGLE_API_KEY, model=embed_model)
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=250)
     all_docs = []
     name_candidates = []
     url_counts = []
@@ -1441,18 +1469,31 @@ async def setup_multiple_pdfs(pdf_paths: List[str], product_slug: str):
     embed_model = "models/embedding-001"
     collection_name = f"{product_slug}_{embed_model.replace('/', '_')}_pdfs"
     embedding_function = GoogleGenerativeAIEmbeddings(google_api_key=GOOGLE_API_KEY, model=embed_model)
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
+    # Larger chunks reduce number of embeddings => faster ingest
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=250)
     all_docs = []
     per_pdf_counts = []
 
+    # Respect a soft page cap across PDFs to limit ingest time
+    max_pages_total = int(os.getenv("PDF_MAX_PAGES_MULTI", "30"))
+    pages_used = 0
+
     for pdf_path in pdf_paths:
-        loader = PyPDFLoader(pdf_path)
+        loader = FastPDFLoader(pdf_path)
         documents = loader.load()
+        if max_pages_total and isinstance(documents, list):
+            remaining = max_pages_total - pages_used
+            if remaining <= 0:
+                break
+            documents = documents[:max(1, remaining)]
+            pages_used += len(documents)
         docs = text_splitter.split_documents(documents)
         
         if not docs and app_state["ocr_settings"]["enable_ocr"]:
             try:
-                ocr_pages = app_state["ocr_settings"]["ocr_pages"]
+                ocr_pages = min(app_state["ocr_settings"]["ocr_pages"], max(0, max_pages_total - pages_used))
+                if ocr_pages <= 0:
+                    ocr_pages = app_state["ocr_settings"]["ocr_pages"]
                 poppler_path = app_state["ocr_settings"]["poppler_path"] or None
                 if app_state["ocr_settings"]["tesseract_cmd"]:
                     pytesseract.pytesseract.tesseract_cmd = app_state["ocr_settings"]["tesseract_cmd"]
@@ -1545,22 +1586,29 @@ user_proxy = autogen.UserProxyAgent(
 
 @app.post("/api/upload-pdf-with-extraction")
 async def upload_pdf_with_extraction(files: List[UploadFile] = File(...)):
-    """Upload PDF and extract parameters immediately"""
+    """Upload PDF and extract parameters immediately (chunked write to reduce latency/memory)."""
     try:
         results = []
         
         for file in files:
-            if not file.filename.endswith('.pdf'):
+            if not file.filename.lower().endswith('.pdf'):
                 raise HTTPException(status_code=400, detail="Only PDF files allowed")
             
-            # Save file temporarily
+            # Save file with chunked writes
             base_name = os.path.splitext(file.filename)[0]
-            base_slug = re.sub(r"[^a-z0-9]+", "-", base_name.lower()).strip("-")
+            base_slug = re.sub(r"[^a-z0-9]+", "-", base_name.lower()).strip("-") or "document"
             pdf_path = os.path.join("data", f"{base_slug}.pdf")
             
-            with open(pdf_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
+            # Ensure data dir exists
+            os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+            
+            async with aiofiles.open(pdf_path, "wb") as f:
+                while True:
+                    chunk = await file.read(1024 * 1024)  # 1MB chunks
+                    if not chunk:
+                        break
+                    await f.write(chunk)
+            await file.close()
             
             # Extract text quickly (first few pages only for speed)
             text_content = await extract_pdf_text_fast(pdf_path)
@@ -1589,9 +1637,11 @@ async def confirm_and_process(
     brand: str = Form(...), 
     model: str = Form(...),
     category: str = Form(...),
-    product_name: str = Form(...)
+    product_name: str = Form(...),
+    background: BackgroundTasks = None,
+    async_build: bool = Form(False)
 ):
-    """Process PDF with confirmed parameters"""
+    """Process PDF with confirmed parameters. Optionally build embeddings in the background."""
     try:
         print(f"Received parameters: pdf_path={pdf_path}, brand={brand}, model={model}, category={category}, product_name={product_name}")
         
@@ -1609,58 +1659,46 @@ async def confirm_and_process(
             }
         })
         
-        # Create product slug from confirmed parameters
-        product_slug = f"{brand}_{model}".lower().replace(' ', '_')
+        # Create a safe product slug from confirmed parameters with fallbacks
+        product_slug = f"{(brand or '').strip()}_{(model or '').strip()}".lower().replace(' ', '_')
+        product_slug = re.sub(r"[^a-z0-9_-]+", "-", product_slug).strip("-_")
+        if not product_slug or not re.match(r"^[a-z0-9]", product_slug):
+            fallback = (product_name or os.path.splitext(os.path.basename(pdf_path))[0] or "product").lower()
+            product_slug = re.sub(r"[^a-z0-9_-]+", "-", fallback).strip("-_") or "product"
+        if len(product_slug) < 3:
+            product_slug = (product_slug + "-doc")[:3]
         app_state['product_slug'] = product_slug
-        
-        # Now do the full RAG pipeline setup
-        print(f"Setting up RAG pipeline for: {pdf_path}")
-        retriever = setup_rag_pipeline(pdf_path, product_slug)
-        
-        # If supported category, enhance with pre-fetched web content
-        if category in CATEGORY_EXTRACTORS:
-            print(f"{category.title()} category detected - enhancing with web content")
-            try:
-                # Build candidate URLs for category content
-                candidate_urls = build_candidate_urls_by_category(product_name, category, brand, app_state.get("user_location"))
-                
-                # Pre-fetch and extract category content
-                category_contents = fetch_and_extract_category_content(candidate_urls, category, max_urls=5)
-                
-                if category_contents:
-                    # Add category content to existing retriever
-                    embed_model = "models/embedding-001"
-                    collection_name = f"{product_slug}_{embed_model.replace('/', '_')}_{category}"
-                    embedding_function = GoogleGenerativeAIEmbeddings(google_api_key=GOOGLE_API_KEY, model=embed_model)
-                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
-                    
-                    category_docs = []
-                    for i, content in enumerate(category_contents):
-                        base_doc = Document(page_content=content, metadata={"source": f"{category}_web_{i}", "type": f"{category}_specs"})
-                        split_docs = text_splitter.split_documents([base_doc])
-                        category_docs.extend(split_docs)
-                    
-                    if category_docs:
-                        # Create additional vector store for category content
-                        category_db = Chroma.from_documents(
-                            category_docs,
-                            embedding_function,
-                            persist_directory="db_chroma",
-                            collection_name=collection_name,
-                        )
-                        
-                        # Update source counts to include category content
-                        current_counts = app_state.get("source_chunk_counts", {"mode": "PDF", "items": []})
-                        current_counts["items"].append((f"{category}_web_content", len(category_docs)))
-                        app_state["source_chunk_counts"] = current_counts
-                        
-                        print(f"Enhanced knowledge base with {len(category_contents)} {category} web sources")
-                        
-            except Exception as e:
-                print(f"Warning: Could not enhance with {category} web content: {str(e)}")
-        
-        app_state["retriever"] = retriever
-        
+
+        # Build function
+        def build_pipeline_sync():
+            retriever_local = setup_rag_pipeline(pdf_path, product_slug)
+            app_state["retriever"] = retriever_local
+            # Skip category-specific enhancement; rely on universal sources during chat when needed
+            pass
+
+        if async_build and background is not None:
+            job_id = str(uuid4())
+            app_state["jobs"][job_id] = {"status": "queued", "slug": product_slug}
+            def job_wrapper():
+                app_state["jobs"][job_id]["status"] = "running"
+                try:
+                    build_pipeline_sync()
+                    app_state["jobs"][job_id]["status"] = "done"
+                except Exception as e:
+                    app_state["jobs"][job_id]["status"] = f"error: {e}"
+            background.add_task(job_wrapper)
+            # Return immediately
+            return {
+                'status': 'accepted',
+                'message': 'Processing started in background',
+                'job_id': job_id,
+                'ready_for_chat': False,
+                'product_info': app_state['product_info']
+            }
+
+        # Synchronous build (default)
+        build_pipeline_sync()
+
         # Try to get official URL
         if not app_state.get("product_url"):
             guessed = guess_official_url(product_name)
@@ -1711,17 +1749,100 @@ What would you like to know about the {product_name}?"""
 
 # === EXISTING API ROUTES (updated) ===
 
-@app.get("/api/status")
-async def get_status():
+@app.post("/api/upload-pdf-with-extraction")
+async def upload_pdf_with_extraction(files: List[UploadFile] = File(...)):
+    """Upload PDF(s), save to data/, and return basic extracted parameters for modal prefill.
+    This is a lightweight extractor to enable the frontend modal; full processing happens after confirm."""
+    try:
+        saved = []
+        for file in files:
+            if not file.filename.lower().endswith('.pdf'):
+                raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+            base_name = os.path.splitext(file.filename)[0]
+            base_slug = re.sub(r"[^a-z0-9]+", "-", base_name.lower()).strip("-") or "document"
+            pdf_path = os.path.join("data", f"{base_slug}.pdf")
+            with open(pdf_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            # Minimal parameter guess from filename
+            params = {
+                "brand": "",
+                "model": "",
+                "product": base_name,
+                "category": ""
+            }
+            saved.append({"pdf_path": pdf_path, "parameters": params})
+        return {"files": saved}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/confirm-and-process")
+async def confirm_and_process(
+    pdf_path: str = Form(...),
+    brand: str = Form("") ,
+    model: str = Form(""),
+    category: str = Form(""),
+    product_name: str = Form("")
+):
+    """Finalize parameters and build the RAG retriever from the uploaded PDF path."""
+    try:
+        # Persist product info
+        app_state["product_brand"] = brand or app_state.get("product_brand", "")
+        app_state["product_model"] = model or app_state.get("product_model", "")
+        # Force category to 'other' so we do not rely on category-specific flows
+        app_state["product_category"] = "other"
+        final_product_name = (product_name or os.path.splitext(os.path.basename(pdf_path))[0]).strip()
+        app_state["product_name"] = final_product_name
+        # Slug
+        product_slug = re.sub(r"[^a-z0-9]+", "-", final_product_name.lower()).strip("-") or "product"
+        app_state["product_slug"] = product_slug
+        # Build retriever
+        if not os.path.exists(pdf_path):
+            raise HTTPException(status_code=400, detail="PDF path not found. Please re-upload.")
+        retriever = setup_rag_pipeline(pdf_path, product_slug)
+        app_state["retriever"] = retriever
+        return {"status": "success", "message": "Ready for chat", "product_name": final_product_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/product-info")
+async def product_info():
     try:
         return {
+            "product_name": app_state.get("product_name", ""),
+            "product_brand": app_state.get("product_brand", ""),
+            "product_model": app_state.get("product_model", ""),
+            "product_category": app_state.get("product_category", ""),
+            "product_url": app_state.get("product_url", ""),
+            "source_counts": app_state.get("source_chunk_counts")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/transcribe")
+async def transcribe_audio(file: UploadFile = File(...), lang: Optional[str] = Form(None)):
+    """Minimal transcription stub. Replace with faster-whisper integration if needed."""
+    try:
+        # Accept file and return a placeholder result so UI flow doesn't 404
+        _ = await file.read()  # consume upload
+        return {"text": ""}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/status")
+async def get_status(job_id: Optional[str] = None):
+    try:
+        status = {
             "product_name": app_state.get("product_name", ""),
             "product_info": app_state.get("product_info", {}),
             "has_retriever": app_state["retriever"] is not None,
             "source_counts": app_state["source_chunk_counts"],
             "user_location": app_state["user_location"],
-            "disable_external": app_state["disable_external"]
+            "disable_external": app_state["disable_external"],
         }
+        if job_id:
+            status["job"] = app_state["jobs"].get(job_id, {"status": "unknown"})
+        return status
     except Exception as e:
         return {"error": str(e)}
 
@@ -1732,17 +1853,22 @@ async def upload_pdf(files: List[UploadFile] = File(...)):
         bases = []
         
         for file in files:
-            if not file.filename.endswith('.pdf'):
+            if not file.filename.lower().endswith('.pdf'):
                 raise HTTPException(status_code=400, detail="Only PDF files are allowed")
             
             base_name = os.path.splitext(file.filename)[0]
             bases.append(base_name)
-            base_slug = re.sub(r"[^a-z0-9]+", "-", base_name.lower()).strip("-")
+            base_slug = re.sub(r"[^a-z0-9]+", "-", base_name.lower()).strip("-") or "document"
             pdf_path = os.path.join("data", f"{base_slug}.pdf")
-            
-            with open(pdf_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
+
+            os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+            async with aiofiles.open(pdf_path, "wb") as f:
+                while True:
+                    chunk = await file.read(1024 * 1024)  # 1MB
+                    if not chunk:
+                        break
+                    await f.write(chunk)
+            await file.close()
             saved_paths.append(pdf_path)
         
         # Create combined slug
@@ -1811,43 +1937,8 @@ async def chat(message: ChatMessage):
             # Initialize context with main content
             context_parts = [f"=== MAIN PRODUCT DOCUMENTATION ===\n{main_context}"]
             
-            # If supported category, prioritize boosted content
-            category = app_state.get("product_category", "other")
-            if category in CATEGORY_EXTRACTORS:
-                product_slug = app_state.get('product_slug', '')
-                embed_model = "models/embedding-001"
-                embedding_function = GoogleGenerativeAIEmbeddings(google_api_key=GOOGLE_API_KEY, model=embed_model)
-                
-                # Try to load category collections (prioritize manual/boosted content)
-                category_collections = [
-                    (f"{product_slug}_{embed_model.replace('/', '_')}_{category}_manual", "BOOSTED WEB CONTENT", 4),  # Higher k for boosted
-                    (f"{product_slug}_{embed_model.replace('/', '_')}_{category}", "AUTO WEB CONTENT", 2)  # Lower k for auto
-                ]
-                
-                boosted_content_found = False
-                for collection_name, content_type, k_value in category_collections:
-                    try:
-                        category_db = Chroma(
-                            persist_directory="db_chroma",
-                            collection_name=collection_name,
-                            embedding_function=embedding_function
-                        )
-                        category_retriever = category_db.as_retriever(search_kwargs={"k": k_value})
-                        category_docs = category_retriever.invoke(prompt)
-                        
-                        if category_docs:
-                            category_context = "\n\n".join([doc.page_content for doc in category_docs])
-                            context_parts.insert(1, f"=== {content_type} ({category.upper()}) ===\n{category_context}")
-                            
-                            if "BOOSTED" in content_type:
-                                boosted_content_found = True
-                                logger.info(f"✅ Using boosted {category} content with {len(category_docs)} chunks")
-                            
-                    except Exception as category_e:
-                        logger.debug(f"{category.title()} collection {collection_name} not available: {str(category_e)}")
-                
-                if not boosted_content_found:
-                    logger.warning(f"⚠️ No boosted content found for {category}. Consider using the boost functionality.")
+            # Skip category-specific boosted content. We’ll rely on universal external enrichment when needed.
+            boosted_content_found = False
             
             # Combine all context with boosted content prioritized
             context = "\n\n".join(context_parts)
@@ -1955,8 +2046,8 @@ async def chat(message: ChatMessage):
         final_msg = user_proxy.last_message(SalesConversationalist)
         final_response = final_msg["content"] if final_msg else "I encountered an issue processing your request."
         
-        if app_state["product_url"] and app_state["product_url"] not in final_response:
-            final_response += f"\n\nOfficial product page: {app_state['product_url']}"
+        # Removed automatic footer link to avoid repeating official page links in every reply.
+        # If needed, the model can still include links within the main response content.
         
         return {
             "response": final_response,
@@ -2418,6 +2509,66 @@ async def manual_boost_with_params(request: ManualBoostRequest):
             
     except Exception as e:
         logger.error(f"Manual boost error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# === SPEECH-TO-TEXT ENDPOINT ===
+@app.post("/api/transcribe")
+async def transcribe_audio(file: UploadFile = File(...), lang: str = Form(default=None)):
+    """Transcribe uploaded audio (e.g., webm/opus from MediaRecorder) to text.
+    Returns {"text": "..."} on success.
+    """
+    try:
+        try:
+            from faster_whisper import WhisperModel  # type: ignore
+        except Exception:
+            raise HTTPException(status_code=500, detail="faster-whisper not installed. Please run: pip install faster-whisper and ensure ffmpeg is available in PATH.")
+
+        # Persist to a temp file for the model to read
+        suffix = os.path.splitext(file.filename or "speech.webm")[1] or ".webm"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(await file.read())
+            tmp_path = tmp.name
+
+        # Load model once per request (simple). Optionally, you can cache this globally if needed.
+        # Use a small model for speed; adjust as you like: "tiny", "base", "small", "medium".
+        model_size = os.getenv("WHISPER_MODEL", "small")
+        try:
+            model = WhisperModel(model_size, compute_type="int8")  # CPU-friendly; use float16 on GPU
+        except Exception as e:
+            # Clean up temp file if model load fails
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail=f"Failed to load Whisper model: {e}")
+
+        try:
+            # Better accuracy: beam search + temperature schedule + language hint if provided
+            segments, info = model.transcribe(
+                tmp_path,
+                beam_size=5,
+                vad_filter=True,
+                temperature=[0.0, 0.2, 0.4],
+                language=(lang if lang else None),
+            )
+
+            text_parts = []
+            for seg in segments:
+                if seg.text:
+                    text_parts.append(seg.text.strip())
+            transcript = " ".join(text_parts).strip()
+            return {"text": transcript}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Transcription error: {e}")
+        finally:
+            # Remove temp file
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # === FRONTEND ROUTE (must be last) ===
