@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Connect Manager Modal</title>
+    <style>
+        body {
+            font-family: Inter, system-ui, sans-serif;
+            padding: 20px;
+            background: #f8fafc;
+        }
+        .debug-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        .debug-info {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .error {
+            background: #fee2e2;
+            color: #dc2626;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="debug-container">
+        <h1>🔍 Debug Connect Manager Modal</h1>
+        
+        <div class="debug-info">
+            <h3>Testing Modal Functionality</h3>
+            <div id="debug-output"></div>
+        </div>
+        
+        <button class="test-btn" onclick="testModalFunction()">Test 1: Check if openSalesConnect function exists</button>
+        <button class="test-btn" onclick="testModalDirectly()">Test 2: Try to open modal directly</button>
+        <button class="test-btn" onclick="testScriptLoading()">Test 3: Check script loading</button>
+        <button class="test-btn" onclick="clearDebug()">Clear Debug Output</button>
+        
+        <div id="results"></div>
+    </div>
+    
+    <script>
+        function addDebugMsg(message, type = 'info') {
+            const output = document.getElementById('debug-output');
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = `<strong>[${new Date().toLocaleTimeString()}]</strong> ${message}`;
+            output.appendChild(div);
+        }
+        
+        function clearDebug() {
+            document.getElementById('debug-output').innerHTML = '';
+            document.getElementById('results').innerHTML = '';
+        }
+        
+        function testModalFunction() {
+            addDebugMsg('Testing if openSalesConnect function exists...');
+            
+            if (typeof window.openSalesConnect === 'function') {
+                addDebugMsg('✅ openSalesConnect function exists!', 'success');
+                
+                // Test calling it
+                try {
+                    window.openSalesConnect('Test Product', '$100', 'Test summary');
+                    addDebugMsg('✅ Successfully called openSalesConnect function', 'success');
+                } catch (e) {
+                    addDebugMsg(`❌ Error calling openSalesConnect: ${e.message}`, 'error');
+                }
+            } else {
+                addDebugMsg('❌ openSalesConnect function does not exist', 'error');
+                addDebugMsg('Available functions on window object:', 'info');
+                
+                const funcs = Object.getOwnPropertyNames(window).filter(name => typeof window[name] === 'function');
+                addDebugMsg(`Found ${funcs.length} functions: ${funcs.slice(0, 10).join(', ')}...`, 'info');
+            }
+        }
+        
+        function testModalDirectly() {
+            addDebugMsg('Checking for modal element in DOM...');
+            
+            const modal = document.getElementById('sales-modal');
+            if (modal) {
+                addDebugMsg('✅ Modal element found in DOM', 'success');
+                addDebugMsg(`Modal classes: ${modal.className}`, 'info');
+                
+                // Try to show it
+                modal.classList.remove('hidden');
+                addDebugMsg('✅ Attempted to show modal by removing hidden class', 'success');
+                
+                setTimeout(() => {
+                    modal.classList.add('hidden');
+                    addDebugMsg('Modal hidden again for testing', 'info');
+                }, 3000);
+            } else {
+                addDebugMsg('❌ Modal element not found in DOM', 'error');
+                
+                // Check for other modal-related elements
+                const modalElements = document.querySelectorAll('[id*="modal"], [class*="modal"]');
+                addDebugMsg(`Found ${modalElements.length} modal-related elements`, 'info');
+            }
+        }
+        
+        function testScriptLoading() {
+            addDebugMsg('Checking script loading...');
+            
+            const scripts = document.querySelectorAll('script');
+            addDebugMsg(`Found ${scripts.length} script elements`, 'info');
+            
+            scripts.forEach((script, index) => {
+                if (script.src) {
+                    addDebugMsg(`Script ${index + 1}: ${script.src}`, 'info');
+                }
+            });
+            
+            // Check for sales_connect.js specifically
+            const salesScript = Array.from(scripts).find(s => s.src.includes('sales_connect'));
+            if (salesScript) {
+                addDebugMsg('✅ sales_connect.js script found', 'success');
+            } else {
+                addDebugMsg('❌ sales_connect.js script not found', 'error');
+            }
+        }
+        
+        // Auto-run basic checks on page load
+        window.addEventListener('load', () => {
+            addDebugMsg('Page loaded, running basic checks...', 'info');
+            
+            setTimeout(() => {
+                testModalFunction();
+            }, 1000);
+        });
+    </script>
+    
+    <!-- Include the sales connect script -->
+    <script src="/static/sales_connect.js?v=3" defer></script>
+</body>
+</html>

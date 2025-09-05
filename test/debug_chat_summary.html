@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Chat Summary</title>
+    <style>
+        body {
+            font-family: Inter, system-ui, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f8fafc;
+        }
+        .debug-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .chat-simulation {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .msg {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 8px;
+        }
+        .msg.user {
+            background: #e3f2fd;
+            text-align: right;
+        }
+        .msg.ai {
+            background: #f3e5f5;
+        }
+        .content {
+            padding: 5px;
+        }
+        .debug-info {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .test-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .result {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="debug-container">
+        <h1>🔍 Debug Chat Summary Generation</h1>
+        
+        <div class="chat-simulation">
+            <h3>Simulated Chat Messages:</h3>
+            <div id="messages">
+                <div class="msg user">
+                    <div class="content">Tell me about iPhone 16</div>
+                </div>
+                <div class="msg ai">
+                    <div class="content">The iPhone 16 features the A18 Bionic chip, improved cameras, and longer battery life. It's available in multiple colors and storage options.</div>
+                </div>
+                <div class="msg user">
+                    <div class="content">What's the price?</div>
+                </div>
+                <div class="msg ai">
+                    <div class="content">The iPhone 16 starts at $799 for the 128GB model. The 256GB model is $899, and the 512GB model is $1099.</div>
+                </div>
+                <div class="msg user">
+                    <div class="content">How does it compare to Samsung Galaxy S24?</div>
+                </div>
+                <div class="msg ai">
+                    <div class="content">Both phones are excellent choices. The iPhone 16 excels in iOS ecosystem integration and video recording. The Galaxy S24 offers better customization options, S Pen support, and faster charging speeds.</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="debug-info">
+            <h3>Debug Information:</h3>
+            <div id="debug-output"></div>
+        </div>
+        
+        <button class="test-btn" onclick="testChatSummary()">Test Chat Summary Generation</button>
+        <button class="test-btn" onclick="openSalesConnect('iPhone 16', '$799', 'Customer comparing iPhone and Samsung')">Open Connect Modal</button>
+        
+        <div class="result" id="result-area" style="display: none;">
+            <h3>Results:</h3>
+            <div id="results"></div>
+        </div>
+    </div>
+    
+    <script>
+        function testChatSummary() {
+            const debugOutput = document.getElementById('debug-output');
+            const resultArea = document.getElementById('result-area');
+            const results = document.getElementById('results');
+            
+            // Clear previous results
+            debugOutput.innerHTML = '';
+            results.innerHTML = '';
+            resultArea.style.display = 'block';
+            
+            // Test the message selection logic
+            const messages = document.querySelectorAll('.msg, .message');
+            debugOutput.innerHTML += `<p><strong>Messages found:</strong> ${messages.length}</p>`;
+            
+            let chatHistory = '';
+            let messageDetails = [];
+            
+            messages.forEach((msg, index) => {
+                const isUser = msg.classList.contains('user');
+                const isAI = msg.classList.contains('ai');
+                const content = msg.querySelector('.content')?.textContent || msg.querySelector('.bubble .content')?.textContent || msg.textContent || '';
+                
+                const detail = {
+                    index: index + 1,
+                    classes: Array.from(msg.classList).join(', '),
+                    isUser,
+                    isAI,
+                    content: content.trim().substring(0, 50) + '...'
+                };
+                messageDetails.push(detail);
+                
+                if (content.trim() && !msg.classList.contains('typing')) {
+                    const role = isUser ? 'User' : (isAI ? 'AI' : 'Message');
+                    chatHistory += `${role}: ${content.trim()}\\n\\n`;
+                }
+            });
+            
+            // Display message details
+            messageDetails.forEach(detail => {
+                debugOutput.innerHTML += `<p><strong>Message ${detail.index}:</strong> Classes: ${detail.classes}, User: ${detail.isUser}, AI: ${detail.isAI}, Content: ${detail.content}</p>`;
+            });
+            
+            debugOutput.innerHTML += `<p><strong>Generated chat history length:</strong> ${chatHistory.length} characters</p>`;
+            
+            if (chatHistory.trim()) {
+                results.innerHTML = `<h4>Chat History Generated:</h4><pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; white-space: pre-wrap;">${chatHistory}</pre>`;
+                
+                // Test API call (but don't actually call it to avoid errors)
+                results.innerHTML += `<h4>API Call Would Be:</h4><p>POST /api/ask with question about generating business summary</p>`;
+            } else {
+                results.innerHTML = '<p style="color: red;"><strong>ERROR:</strong> No chat history generated!</p>';
+            }
+        }
+        
+        // Mock the openSalesConnect function for testing
+        function openSalesConnect(product, price, summary) {
+            alert(`Mock Connect Modal:\\nProduct: ${product}\\nPrice: ${price}\\nSummary: ${summary}\\n\\nIn real app, this would open the sales connect modal.`);
+        }
+    </script>
+    
+    <!-- Include the actual sales connect script for testing -->
+    <script src="app/frontend/static/sales_connect.js"></script>
+</body>
+</html>

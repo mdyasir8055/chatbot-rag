@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Sales Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=2025010904" />
+</head>
+<body>
+  <div class="shell">
+
+    <!-- Left Sidebar - Controls -->
+    <aside class="left-sidebar">
+      <h2>AI Sales Agent</h2>
+      <p class="muted">Upload a PDF, enter a URL, or type a product name — then confirm.</p>
+
+      <!-- Standard topic init -->
+      <form id="topicForm" class="topic-form" enctype="multipart/form-data">
+        <label class="file-label">
+          <input type="file" id="pdf" name="pdf" accept="application/pdf">
+          <span>📄 Attach PDF </span>
+        </label>
+        <div id="pdfName" class="status muted" aria-live="polite"></div>
+
+        <input type="text" id="product" placeholder="Paste product URL or type product name (optional)" />
+        <div class="row-2">
+          <label class="chip-toggle small" title="Use OCR for scanned PDFs">
+            <span class="dot tiny"></span>
+            <span>OCR: Auto</span>
+            <select id="ocrMode">
+              <option value="auto" selected>Auto</option>
+              <option value="force">Force</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        </div>
+
+        <button type="submit" id="confirmTopic">Confirm Topic</button>
+      </form>
+
+      <div id="topicStatus" class="status muted">No topic selected</div>
+
+      <hr />
+
+      <!-- Comparison Mode init -->
+      <div class="muted">Comparison Mode</div>
+      <label class="status-chip chip-toggle">
+        <span class="dot" id="compareDot"></span>
+        <span id="compareText">OFF</span>
+        <input type="checkbox" id="compareToggle" aria-label="Toggle Comparison Mode" />
+      </label>
+
+      <form id="compareForm" class="topic-form compact" enctype="multipart/form-data" hidden>
+        <div class="muted">Compare current topic <strong>vs</strong>:</div>
+        <label class="file-label">
+          <input type="file" id="pdfB" name="pdfB" accept="application/pdf">
+          <span>📄 Attach PDF (B)</span>
+        </label>
+        <input type="text" id="productB" placeholder="Or URL/name for Topic B" />
+        <button type="submit" id="confirmCompare">Confirm Comparison Pair</button>
+        <div id="compareStatus" class="status muted"></div>
+      </form>
+    </aside>
+
+    <!-- Chat Area - Center -->
+    <main class="chat">
+      <header class="chat-header">
+        <h2>AI Sales Agent</h2>
+
+        <div class="header-actions">
+          <button id="themeToggle" class="btn theme-toggle" title="Toggle theme">
+            <svg id="sunIcon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.591 1.59a.75.75 0 101.06 1.061l1.591-1.59zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5H21a.75.75 0 01.75.75zM17.834 18.894a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 10-1.061 1.06l1.59 1.591zM12 18a.75.75 0 01.75.75V21a.75.75 0 01-1.5 0v-2.25A.75.75 0 0112 18zM7.758 17.303a.75.75 0 00-1.061-1.06l-1.591 1.59a.75.75 0 001.06 1.061l1.591-1.59zM6 12a.75.75 0 01-.75.75H3a.75.75 0 010-1.5h2.25A.75.75 0 016 12zM6.697 7.757a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 00-1.061 1.06l1.59 1.591z"/>
+            </svg>
+            <svg id="moonIcon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+              <path d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 003.463-.69.75.75 0 01.981.98 10.503 10.503 0 01-9.694 6.46c-5.799 0-10.5-4.701-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 01.818.162z"/>
+            </svg>
+          </button>
+
+          <label class="status-chip chip-toggle" title="Toggle document-grounded RAG">
+            <span class="dot" id="ragDot"></span>
+            <span id="ragText">RAG: ON</span>
+            <input type="checkbox" id="ragToggle" checked aria-label="Toggle RAG" />
+          </label>
+
+          <button
+            class="btn primary"
+            id="connectBtn"
+            onclick="openSalesConnect(window.currentProductRef || '', window.currentQuotedPrice || '', window.currentContextSummary || '')"
+            aria-label="Connect to store manager"
+          >
+            Connect to Manager
+          </button>
+        </div>
+      </header>
+
+      <div id="messages" class="messages"></div>
+
+      <form id="composer" class="composer" disabled>
+        <input type="text" id="question" placeholder="Type your question and hit Enter…" autocomplete="off" required />
+        <button id="micBtn" class="icon-btn" type="button" aria-pressed="false" aria-label="Start voice input" title="Start voice input">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M12 14a4 4 0 0 0 4-4V7a4 4 0 1 0-8 0v3a4 4 0 0 0 4 4Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M19 10a7 7 0 1 1-14 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="M12 17v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <button id="sendBtn" class="icon-btn" type="submit" aria-label="Send message" title="Send">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M3.5 11.5L20.5 4.5l-7 17-2.5-7-7.5-3Z" fill="currentColor"/>
+          </svg>
+        </button>
+      </form>
+    </main>
+
+    <!-- Right Sidebar - History -->
+    <aside class="right-sidebar">
+      <button id="newChatBtn" class="btn new-chat">+ New Chat</button>
+      <div class="history-header">
+        <h3>Chat History</h3>
+        <button id="clearHistory" class="danger compact">Clear</button>
+      </div>
+      <div id="history" class="history-content"></div>
+    </aside>
+  </div>
+
+  <template id="msg-template">
+    <div class="msg">
+      <div class="avatar" aria-hidden="true"></div>
+      <div class="bubble">
+        <div class="content"></div>
+        <div class="controls" hidden></div>
+        <details class="sources" hidden>
+          <summary>Sources</summary>
+          <ul></ul>
+        </details>
+      </div>
+    </div>
+  </template>
+
+  <script src="/static/script.js?v=5" defer></script>
+  <script src="/static/sales_connect.js?v=3" defer></script>
+</body>
+</html>

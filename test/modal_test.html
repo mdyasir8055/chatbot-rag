@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modal Test - Sales Agent</title>
+    <style>
+        body {
+            font-family: Inter, system-ui, sans-serif;
+            margin: 0;
+            padding: 40px;
+            background: #f8fafc;
+        }
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .test-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 10px;
+            transition: all 0.2s ease;
+        }
+        .test-btn:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+        .improvements {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-top: 30px;
+            text-align: left;
+        }
+        .improvement {
+            padding: 15px;
+            margin: 15px 0;
+            background: #f1f5f9;
+            border-left: 4px solid #10b981;
+            border-radius: 4px;
+        }
+        .improvement h3 {
+            margin: 0 0 8px 0;
+            color: #10b981;
+        }
+        .improvement p {
+            margin: 0;
+            color: #64748b;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🚀 Sales Agent Modal Improvements</h1>
+        <p>Test the updated "Connect to Manager" modal with the new features:</p>
+        
+        <button class="test-btn" onclick="openSalesConnect('iPhone 16 Pro', '$999', 'Customer interested in latest iPhone with best camera features')">
+            Test Modal (with sample data)
+        </button>
+        
+        <button class="test-btn" onclick="openSalesConnect()">
+            Test Modal (empty)
+        </button>
+        
+        <div class="improvements">
+            <h2>✨ What's New:</h2>
+            
+            <div class="improvement">
+                <h3>1. Single Line Consent Checkbox</h3>
+                <p>The consent checkbox and text are now on a single line, making the form more compact and user-friendly.</p>
+            </div>
+            
+            <div class="improvement">
+                <h3>2. Success Message</h3>
+                <p>After sending the email, users see a green success message in the top-right corner instead of a basic alert box.</p>
+            </div>
+            
+            <div class="improvement">
+                <h3>3. Auto-Close Modal</h3>
+                <p>The modal automatically closes 3 seconds after showing the success message, providing a smooth user experience.</p>
+            </div>
+            
+            <div class="improvement">
+                <h3>4. Improved Error Messages</h3>
+                <p>Better error handling for the "Generate Chat Summary" feature with clearer messaging.</p>
+            </div>
+        </div>
+        
+        <div style="margin-top: 30px; padding: 20px; background: #fef3c7; border-radius: 8px; color: #92400e;">
+            <strong>📝 How to Test:</strong>
+            <ul style="text-align: left; margin: 10px 0;">
+                <li>Click "Test Modal" to open the Connect to Manager form</li>
+                <li>Fill in the required fields (marked with *)</li>
+                <li>Notice the consent checkbox is now on a single line</li>
+                <li>Click "Preview Email" to generate the email preview</li>
+                <li>Click "Send Email" to see the success message and auto-close</li>
+            </ul>
+        </div>
+    </div>
+    
+    <!-- Include the updated sales_connect.js -->
+    <script src="app/frontend/static/sales_connect.js"></script>
+</body>
+</html>
