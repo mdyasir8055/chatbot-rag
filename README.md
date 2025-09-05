@@ -1,4 +1,4 @@
-# Do_or_Die — AI Sales Agent (Free‑Tier)
+# AI Sales Agent (Free‑Tier)
 
 PDF/URL/name → topic extraction → PDF‑first answer → Google CSE fallback → Groq synthesis.
 Transparent tags: **(found in PDF)** or **(looked up on the web since not in PDF)**.
